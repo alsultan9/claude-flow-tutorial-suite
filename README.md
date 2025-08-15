@@ -22,6 +22,7 @@ This tutorial suite enables anyone to:
 | **WFGY Enhanced** | Enterprise projects | 90% | 5-8 min | Methodology integration |
 | **Enhanced UX** | User-friendly experience | 95% | 6-10 min | Templates, validation |
 | **Code Refactor** | Existing codebases | 90% | 10-15 min | GitHub analysis, adaptation |
+| **Dr. House** | Quality assurance | 95% | 8-15 min | Brutal assessment, quality gates |
 
 ## 🚀 **Quick Start**
 
@@ -42,6 +43,15 @@ cd claude-flow-tutorial-suite
 
 # Code refactoring from GitHub repo
 ./organized_tutorial/scripts/06_code_refactor_orchestrator.sh -n refactored-app -t github -p https://github.com/user/repo.git -f "Modern React app with microservices"
+
+# Dr. House brutal assessment
+./organized_tutorial/scripts/08_brutal_assessor.sh -n my-project -i "Build a modern web API"
+
+# Complete with Dr. House quality gates
+./organized_tutorial/scripts/09_complete_with_house.sh -n production-app -i "Build production-ready API" --threshold 0.9
+
+# Refactor with Dr. House assessment
+./organized_tutorial/scripts/10_refactor_with_house.sh -n modern-app -t github -p https://github.com/user/repo.git -f "Modern Python API"
 
 # Basic tutorial
 ./organized_tutorial/scripts/02_basic_corrected.sh -n my-project
@@ -66,6 +76,13 @@ Transform existing codebases into new applications:
 - **Local codebase modernization** and enhancement
 - **Multi-repository fusion** and integration
 - **Legacy to modern migration** with architecture upgrades
+
+### **Dr. House Brutal Assessment**
+Ensure quality with brutal honesty:
+- **Unfiltered feedback** on code quality and architecture
+- **Quality thresholds** that must be met before deployment
+- **Production-ready assessment** with specific improvement recommendations
+- **No sugar-coating** - tells you exactly what's wrong and how to fix it
 
 ### **Smart Validation**
 - **BBMC**: Data consistency validation
@@ -110,6 +127,7 @@ claude-flow-tutorial-suite/
 - **[Usage Guide](organized_tutorial/documentation/03_usage_guide.md)**
 - **[WFGY Implementation](organized_tutorial/documentation/07_wfgy_implementation.md)**
 - **[Code Refactor Guide](organized_tutorial/documentation/08_code_refactor_guide.md)**
+- **[Dr. House Guide](organized_tutorial/documentation/09_dr_house_guide.md)**
 - **[Dependency Management](organized_tutorial/documentation/05_dependency_management.md)**
 
 ## 🎯 **Example Projects**
