@@ -1,0 +1,53 @@
+# Kubernetes Namespaces for Environment Separation
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    environment: production
+    app: integration-system
+    version: v1
+  annotations:
+    description: "Production environment for the integration system"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels:
+    environment: staging
+    app: integration-system
+    version: v1
+  annotations:
+    description: "Staging environment for testing and validation"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: development
+  labels:
+    environment: development
+    app: integration-system
+    version: v1
+  annotations:
+    description: "Development environment for feature development"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    purpose: monitoring
+    app: integration-system
+  annotations:
+    description: "Monitoring and observability stack"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data
+  labels:
+    purpose: data
+    app: integration-system
+  annotations:
+    description: "Data layer services (databases, cache, search)"

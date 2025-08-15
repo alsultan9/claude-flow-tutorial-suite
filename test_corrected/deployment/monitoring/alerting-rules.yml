@@ -1,0 +1,320 @@
+# Prometheus Alerting Rules for Integration System
+# These rules define conditions that trigger alerts for various system metrics
+
+groups:
+  # ==========================================================================
+  # Application Health Alerts
+  # ==========================================================================
+  - name: integration-system.application-health
+    interval: 30s
+    rules:
+    - alert: ServiceDown
+      expr: up{job=~"api-gateway|auth-service|user-service"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        service: "{{ $labels.job }}"
+        environment: "{{ $labels.environment }}"
+      annotations:
+        summary: "Service {{ $labels.job }} is down"
+        description: "Service {{ $labels.job }} in {{ $labels.environment }} environment has been down for more than 1 minute."
+        runbook_url: "https://docs.example.com/runbooks/service-down"
+
+    - alert: HighErrorRate
+      expr: |
+        (
+          sum(rate(http_requests_total{status=~"5.."}[5m])) by (service, environment) 
+          / 
+          sum(rate(http_requests_total[5m])) by (service, environment)
+        ) * 100 > 5
+      for: 2m
+      labels:
+        severity: warning
+        service: "{{ $labels.service }}"
+        environment: "{{ $labels.environment }}"
+      annotations:
+        summary: "High error rate detected for {{ $labels.service }}"
+        description: "Error rate for {{ $labels.service }} in {{ $labels.environment }} is {{ $value | humanizePercentage }}."
+        runbook_url: "https://docs.example.com/runbooks/high-error-rate"
+
+    - alert: HighResponseTime
+      expr: |
+        histogram_quantile(0.95, 
+          sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service, environment)
+        ) * 1000 > 1000
+      for: 5m
+      labels:
+        severity: warning
+        service: "{{ $labels.service }}"
+        environment: "{{ $labels.environment }}"
+      annotations:
+        summary: "High response time for {{ $labels.service }}"
+        description: "95th percentile response time for {{ $labels.service }} in {{ $labels.environment }} is {{ $value | humanizeDuration }}."
+        runbook_url: "https://docs.example.com/runbooks/high-response-time"
+
+  # ==========================================================================
+  # Infrastructure Alerts
+  # ==========================================================================
+  - name: integration-system.infrastructure
+    interval: 60s
+    rules:
+    - alert: HighCPUUsage
+      expr: |
+        (
+          sum(rate(container_cpu_usage_seconds_total{pod=~".*integration-system.*"}[5m])) by (pod, namespace)
+          / 
+          sum(container_spec_cpu_quota{pod=~".*integration-system.*"}/container_spec_cpu_period{pod=~".*integration-system.*"}) by (pod, namespace)
+        ) * 100 > 80
+      for: 10m
+      labels:
+        severity: warning
+        pod: "{{ $labels.pod }}"
+        namespace: "{{ $labels.namespace }}"
+      annotations:
+        summary: "High CPU usage for {{ $labels.pod }}"
+        description: "CPU usage for {{ $labels.pod }} in {{ $labels.namespace }} is {{ $value | humanizePercentage }}."
+        runbook_url: "https://docs.example.com/runbooks/high-cpu"
+
+    - alert: HighMemoryUsage
+      expr: |
+        (
+          container_memory_working_set_bytes{pod=~".*integration-system.*"} 
+          / 
+          container_spec_memory_limit_bytes{pod=~".*integration-system.*"}
+        ) * 100 > 85
+      for: 5m
+      labels:
+        severity: warning
+        pod: "{{ $labels.pod }}"
+        namespace: "{{ $labels.namespace }}"
+      annotations:
+        summary: "High memory usage for {{ $labels.pod }}"
+        description: "Memory usage for {{ $labels.pod }} in {{ $labels.namespace }} is {{ $value | humanizePercentage }}."
+        runbook_url: "https://docs.example.com/runbooks/high-memory"
+
+    - alert: PodCrashLooping
+      expr: increase(kube_pod_container_status_restarts_total[1h]) > 5
+      for: 0m
+      labels:
+        severity: critical
+        pod: "{{ $labels.pod }}"
+        namespace: "{{ $labels.namespace }}"
+        container: "{{ $labels.container }}"
+      annotations:
+        summary: "Pod {{ $labels.pod }} is crash looping"
+        description: "Pod {{ $labels.pod }}/{{ $labels.container }} in {{ $labels.namespace }} has restarted {{ $value }} times in the last hour."
+        runbook_url: "https://docs.example.com/runbooks/crash-looping"
+
+  # ==========================================================================
+  # Database Alerts
+  # ==========================================================================
+  - name: integration-system.database
+    interval: 60s
+    rules:
+    - alert: DatabaseConnectionsHigh
+      expr: pg_stat_database_numbackends > 80
+      for: 5m
+      labels:
+        severity: warning
+        database: "{{ $labels.datname }}"
+      annotations:
+        summary: "High number of database connections"
+        description: "Database {{ $labels.datname }} has {{ $value }} active connections."
+        runbook_url: "https://docs.example.com/runbooks/db-connections"
+
+    - alert: DatabaseReplicationLag
+      expr: pg_replication_lag_seconds > 60
+      for: 2m
+      labels:
+        severity: critical
+        replica: "{{ $labels.instance }}"
+      annotations:
+        summary: "Database replication lag is high"
+        description: "Replication lag for {{ $labels.instance }} is {{ $value | humanizeDuration }}."
+        runbook_url: "https://docs.example.com/runbooks/replication-lag"
+
+    - alert: DatabaseSlowQueries
+      expr: |
+        rate(pg_stat_database_tup_returned[5m]) / rate(pg_stat_database_tup_fetched[5m]) < 0.1
+      for: 10m
+      labels:
+        severity: warning
+        database: "{{ $labels.datname }}"
+      annotations:
+        summary: "Database has inefficient queries"
+        description: "Database {{ $labels.datname }} query efficiency is {{ $value | humanizePercentage }}."
+        runbook_url: "https://docs.example.com/runbooks/slow-queries"
+
+  # ==========================================================================
+  # Cache and Storage Alerts
+  # ==========================================================================
+  - name: integration-system.cache-storage
+    interval: 60s
+    rules:
+    - alert: RedisConnectionsHigh
+      expr: redis_connected_clients > 100
+      for: 5m
+      labels:
+        severity: warning
+        redis_instance: "{{ $labels.instance }}"
+      annotations:
+        summary: "High number of Redis connections"
+        description: "Redis instance {{ $labels.instance }} has {{ $value }} connected clients."
+        runbook_url: "https://docs.example.com/runbooks/redis-connections"
+
+    - alert: RedisMemoryHigh
+      expr: (redis_memory_used_bytes / redis_memory_max_bytes) * 100 > 90
+      for: 5m
+      labels:
+        severity: critical
+        redis_instance: "{{ $labels.instance }}"
+      annotations:
+        summary: "Redis memory usage is high"
+        description: "Redis instance {{ $labels.instance }} memory usage is {{ $value | humanizePercentage }}."
+        runbook_url: "https://docs.example.com/runbooks/redis-memory"
+
+    - alert: ElasticsearchClusterRed
+      expr: elasticsearch_cluster_health_status{color="red"} == 1
+      for: 0m
+      labels:
+        severity: critical
+        cluster: "{{ $labels.cluster }}"
+      annotations:
+        summary: "Elasticsearch cluster status is red"
+        description: "Elasticsearch cluster {{ $labels.cluster }} status is red."
+        runbook_url: "https://docs.example.com/runbooks/elasticsearch-red"
+
+  # ==========================================================================
+  # Business Logic Alerts
+  # ==========================================================================
+  - name: integration-system.business-logic
+    interval: 60s
+    rules:
+    - alert: HighFailedLogins
+      expr: |
+        increase(auth_failed_login_attempts_total[5m]) > 20
+      for: 1m
+      labels:
+        severity: warning
+        service: "auth-service"
+      annotations:
+        summary: "High number of failed login attempts"
+        description: "{{ $value }} failed login attempts in the last 5 minutes."
+        runbook_url: "https://docs.example.com/runbooks/failed-logins"
+
+    - alert: TaskProcessingBacklog
+      expr: |
+        task_queue_pending_total > 1000
+      for: 10m
+      labels:
+        severity: warning
+        queue: "{{ $labels.queue_name }}"
+      annotations:
+        summary: "Task processing backlog is high"
+        description: "Task queue {{ $labels.queue_name }} has {{ $value }} pending tasks."
+        runbook_url: "https://docs.example.com/runbooks/task-backlog"
+
+    - alert: NotificationDeliveryFailures
+      expr: |
+        (
+          increase(notification_delivery_failures_total[10m]) 
+          / 
+          increase(notification_delivery_attempts_total[10m])
+        ) * 100 > 10
+      for: 5m
+      labels:
+        severity: warning
+        channel: "{{ $labels.channel }}"
+      annotations:
+        summary: "High notification delivery failure rate"
+        description: "Notification delivery failure rate for {{ $labels.channel }} is {{ $value | humanizePercentage }}."
+        runbook_url: "https://docs.example.com/runbooks/notification-failures"
+
+  # ==========================================================================
+  # Security Alerts
+  # ==========================================================================
+  - name: integration-system.security
+    interval: 30s
+    rules:
+    - alert: SuspiciousAPIActivity
+      expr: |
+        increase(http_requests_total{status="401"}[5m]) > 50
+      for: 2m
+      labels:
+        severity: warning
+        service: "{{ $labels.service }}"
+      annotations:
+        summary: "Suspicious API activity detected"
+        description: "{{ $value }} unauthorized requests in the last 5 minutes for {{ $labels.service }}."
+        runbook_url: "https://docs.example.com/runbooks/suspicious-activity"
+
+    - alert: RateLimitExceeded
+      expr: |
+        increase(rate_limit_exceeded_total[5m]) > 100
+      for: 1m
+      labels:
+        severity: warning
+        service: "{{ $labels.service }}"
+        endpoint: "{{ $labels.endpoint }}"
+      annotations:
+        summary: "Rate limit frequently exceeded"
+        description: "Rate limit exceeded {{ $value }} times in 5 minutes for {{ $labels.service }}{{ $labels.endpoint }}."
+        runbook_url: "https://docs.example.com/runbooks/rate-limit"
+
+  # ==========================================================================
+  # Certificate and TLS Alerts
+  # ==========================================================================
+  - name: integration-system.certificates
+    interval: 3600s  # Check every hour
+    rules:
+    - alert: TLSCertificateExpiringSoon
+      expr: |
+        (cert_exporter_not_after - time()) / 86400 < 7
+      for: 0m
+      labels:
+        severity: warning
+        domain: "{{ $labels.domain }}"
+      annotations:
+        summary: "TLS certificate expiring soon"
+        description: "TLS certificate for {{ $labels.domain }} expires in {{ $value }} days."
+        runbook_url: "https://docs.example.com/runbooks/cert-expiry"
+
+    - alert: TLSCertificateExpired
+      expr: |
+        (cert_exporter_not_after - time()) < 0
+      for: 0m
+      labels:
+        severity: critical
+        domain: "{{ $labels.domain }}"
+      annotations:
+        summary: "TLS certificate has expired"
+        description: "TLS certificate for {{ $labels.domain }} has expired."
+        runbook_url: "https://docs.example.com/runbooks/cert-expired"
+
+  # ==========================================================================
+  # Monitoring System Health
+  # ==========================================================================
+  - name: integration-system.monitoring
+    interval: 60s
+    rules:
+    - alert: PrometheusTargetDown
+      expr: up == 0
+      for: 5m
+      labels:
+        severity: warning
+        target: "{{ $labels.instance }}"
+        job: "{{ $labels.job }}"
+      annotations:
+        summary: "Prometheus target is down"
+        description: "Prometheus target {{ $labels.job }}/{{ $labels.instance }} is down."
+        runbook_url: "https://docs.example.com/runbooks/prometheus-target-down"
+
+    - alert: PrometheusConfigurationReload
+      expr: prometheus_config_last_reload_successful == 0
+      for: 0m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Prometheus configuration reload failed"
+        description: "Prometheus configuration reload has failed."
+        runbook_url: "https://docs.example.com/runbooks/prometheus-config-failed"

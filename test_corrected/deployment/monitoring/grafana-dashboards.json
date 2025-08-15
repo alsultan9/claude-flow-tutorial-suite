@@ -1,0 +1,309 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Integration System - Application Overview",
+    "tags": ["integration-system", "microservices", "overview"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "environment",
+          "type": "query",
+          "query": "label_values(up, environment)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true,
+          "current": {
+            "value": "$__all",
+            "text": "All"
+          }
+        },
+        {
+          "name": "service",
+          "type": "query",
+          "query": "label_values(up{environment=~\"$environment\"}, job)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true,
+          "current": {
+            "value": "$__all",
+            "text": "All"
+          }
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Service Health Overview",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "up{job=~\"$service\", environment=~\"$environment\"}",
+            "legendFormat": "{{job}} - {{environment}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"options": {"0": {"text": "DOWN", "color": "red"}}, "type": "value"},
+              {"options": {"1": {"text": "UP", "color": "green"}}, "type": "value"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "green", "value": 1}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Request Rate (req/sec)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{job=~\"$service\", environment=~\"$environment\"}[5m])) by (job, environment)",
+            "legendFormat": "{{job}} - {{environment}}",
+            "refId": "A"
+          }
+        ],
+        "yAxes": [
+          {"label": "Requests/sec", "min": 0},
+          {"show": false}
+        ],
+        "legend": {
+          "show": true,
+          "values": true,
+          "current": true,
+          "max": true,
+          "avg": true
+        }
+      },
+      {
+        "id": 3,
+        "title": "Response Time P95 (ms)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=~\"$service\", environment=~\"$environment\"}[5m])) by (job, le, environment)) * 1000",
+            "legendFormat": "{{job}} - {{environment}}",
+            "refId": "A"
+          }
+        ],
+        "yAxes": [
+          {"label": "Milliseconds", "min": 0},
+          {"show": false}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [1000], "type": "gt"},
+              "operator": {"type": "and"},
+              "query": {"params": ["A", "5m", "now"]},
+              "reducer": {"type": "avg"}
+            }
+          ],
+          "executionErrorState": "alerting",
+          "for": "2m",
+          "frequency": "10s",
+          "handler": 1,
+          "name": "High Response Time Alert",
+          "noDataState": "no_data"
+        }
+      },
+      {
+        "id": 4,
+        "title": "Error Rate (%)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "(sum(rate(http_requests_total{job=~\"$service\", environment=~\"$environment\", status=~\"5..\"}[5m])) by (job, environment) / sum(rate(http_requests_total{job=~\"$service\", environment=~\"$environment\"}[5m])) by (job, environment)) * 100",
+            "legendFormat": "{{job}} - {{environment}}",
+            "refId": "A"
+          }
+        ],
+        "yAxes": [
+          {"label": "Error Rate %", "min": 0, "max": 100},
+          {"show": false}
+        ],
+        "thresholds": [
+          {"value": 5, "colorMode": "critical", "op": "gt"}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [5], "type": "gt"},
+              "operator": {"type": "and"},
+              "query": {"params": ["A", "2m", "now"]},
+              "reducer": {"type": "avg"}
+            }
+          ],
+          "executionErrorState": "alerting",
+          "for": "1m",
+          "frequency": "10s",
+          "handler": 1,
+          "name": "High Error Rate Alert",
+          "noDataState": "no_data"
+        }
+      },
+      {
+        "id": 5,
+        "title": "CPU Usage (%)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "expr": "avg(rate(container_cpu_usage_seconds_total{pod=~\".*$service.*\", namespace=~\"$environment\"}[5m])) by (pod, namespace) * 100",
+            "legendFormat": "{{pod}} - {{namespace}}",
+            "refId": "A"
+          }
+        ],
+        "yAxes": [
+          {"label": "CPU %", "min": 0, "max": 100},
+          {"show": false}
+        ],
+        "thresholds": [
+          {"value": 80, "colorMode": "critical", "op": "gt"}
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Memory Usage (%)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "(avg(container_memory_working_set_bytes{pod=~\".*$service.*\", namespace=~\"$environment\"}) by (pod, namespace) / avg(container_spec_memory_limit_bytes{pod=~\".*$service.*\", namespace=~\"$environment\"}) by (pod, namespace)) * 100",
+            "legendFormat": "{{pod}} - {{namespace}}",
+            "refId": "A"
+          }
+        ],
+        "yAxes": [
+          {"label": "Memory %", "min": 0, "max": 100},
+          {"show": false}
+        ],
+        "thresholds": [
+          {"value": 85, "colorMode": "critical", "op": "gt"}
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Database Connections",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+        "targets": [
+          {
+            "expr": "pg_stat_database_numbackends{datname!=\"template0\",datname!=\"template1\",datname!=\"postgres\"}",
+            "legendFormat": "{{datname}} connections",
+            "refId": "A"
+          }
+        ],
+        "yAxes": [
+          {"label": "Connections", "min": 0},
+          {"show": false}
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Top Endpoints by Request Count (Last 1h)",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32},
+        "targets": [
+          {
+            "expr": "topk(10, sum(increase(http_requests_total{job=~\"$service\", environment=~\"$environment\"}[1h])) by (method, uri, job, environment))",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {"Time": true, "__name__": true},
+              "indexByName": {
+                "job": 0,
+                "environment": 1,
+                "method": 2,
+                "uri": 3,
+                "Value": 4
+              },
+              "renameByName": {
+                "job": "Service",
+                "environment": "Environment",
+                "method": "Method",
+                "uri": "Endpoint",
+                "Value": "Request Count"
+              }
+            }
+          }
+        ],
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Request Count"},
+            "properties": [{
+              "id": "custom.displayMode",
+              "value": "color-background"
+            }]
+          }
+        ]
+      }
+    ],
+    "annotations": {
+      "list": [
+        {
+          "builtIn": 1,
+          "datasource": "-- Grafana --",
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "type": "dashboard"
+        },
+        {
+          "datasource": "Prometheus",
+          "enable": true,
+          "expr": "ALERTS{alertstate=\"firing\", job=~\"$service\", environment=~\"$environment\"}",
+          "iconColor": "red",
+          "name": "Active Alerts",
+          "showIn": 0,
+          "step": "60s",
+          "tagKeys": "alertname,severity",
+          "titleFormat": "{{alertname}}",
+          "type": "tags"
+        }
+      ]
+    },
+    "links": [
+      {
+        "icon": "external link",
+        "tags": [],
+        "title": "Application Logs",
+        "tooltip": "View application logs in Elasticsearch",
+        "type": "link",
+        "url": "https://elasticsearch.example.com/_plugin/kibana/"
+      },
+      {
+        "icon": "external link",
+        "tags": [],
+        "title": "Distributed Tracing",
+        "tooltip": "View distributed traces in Jaeger",
+        "type": "link",
+        "url": "https://jaeger.example.com/"
+      }
+    ]
+  }
+}

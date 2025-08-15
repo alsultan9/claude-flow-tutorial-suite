@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+# idea_to_app_corrected.sh
+# Turn a plain-English idea into a working repo using Claude Code + Claude Flow — no hand coding.
+# CORRECTED VERSION - Aligned with actual Claude Flow v2.0.0 architecture
+# macOS-friendly; Linux works with minor tweaks (ffmpeg install hint differs).
+set -euo pipefail
+
+# ------------------------- CONFIG DEFAULTS -------------------------
+PROJECT_NAME_DEFAULT="my_project"
+ROOT_DEFAULT="$HOME/Documents"
+AGENTS_DEFAULT=7                   # swarm agent count for initial build
+TOPOLOGY_DEFAULT="auto"            # auto | swarm | hive
+SPARC_MODE_DEFAULT="auto"          # auto | architect | api | ui | ml | tdd
+VERBOSE_FLAG="--verbose"           # add "" to silence Flow logs
+NONINTERACTIVE="--non-interactive" # always non-interactive
+# ------------------------------------------------------------------
+
+# ------------------------- ARG PARSING -----------------------------
+usage() {
+  cat <<USAGE
+Usage: $(basename "$0") [-n project_name] [-r /path/to/root] [-s sparc_mode] [-o topology] [-a agents] [-q quiet]
+  -n  Project name (default: $PROJECT_NAME_DEFAULT)
+  -r  Root directory to create project in (default: $ROOT_DEFAULT)
+  -s  SPARC Mode: auto|architect|api|ui|ml|tdd (default: auto)
+  -o  Topology: auto|swarm|hive (default: auto)
+  -a  Agents count (default: $AGENTS_DEFAULT)
+  -q  Quiet mode (less Flow logs)
+Examples:
+  $(basename "$0") -n youtube_intel
+  $(basename "$0") -n youtube_intel -s architect -o swarm -a 7
+USAGE
+  exit 1
+}
+
+PROJECT_NAME="$PROJECT_NAME_DEFAULT"
+ROOT="$ROOT_DEFAULT"
+SPARC_MODE="$SPARC_MODE_DEFAULT"
+TOPOLOGY="$TOPOLOGY_DEFAULT"
+AGENTS="$AGENTS_DEFAULT"
+
+while getopts ":n:r:s:o:a:q" opt; do
+  case $opt in
+    n) PROJECT_NAME="$OPTARG" ;;
+    r) ROOT="$OPTARG" ;;
+    s) SPARC_MODE="$OPTARG" ;;
+    o) TOPOLOGY="$OPTARG" ;;
+    a) AGENTS="$AGENTS_DEFAULT" ;;
+    q) VERBOSE_FLAG="" ;;
+    *) usage ;;
+  esac
+done
+
+PROJECT_DIR="$ROOT/$PROJECT_NAME"
+mkdir -p "$PROJECT_DIR"
+cd "$PROJECT_DIR"
+
+# ------------------------- PRECHECKS -------------------------------
+say() { printf "\033[1;34m[idea-to-app]\033[0m %s\n" "$*"; }
+warn(){ printf "\033[1;33m[warn]\033[0m %s\n" "$*"; }
+die() { printf "\033[1;31m[error]\033[0m %s\n" "$*"; exit 1; }
+
+require_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing '$1'. Please install it and re-run."; }
+
+say "Checking prerequisites…"
+require_cmd node
+require_cmd npm
+
+# Python/ffmpeg are handled later by bootstrap.sh that Flow will generate,
+# but we hint now to reduce surprises.
+if ! command -v python3 >/dev/null 2>&1; then warn "python3 not found; Flow's bootstrap will fail until you install Python 3.11+."; fi
+if ! command -v ffmpeg  >/dev/null 2>&1; then warn "ffmpeg not found; Flow's bootstrap will prompt you to install it (brew install ffmpeg)."; fi
+
+# ------------------------- INSTALL CLIS ----------------------------
+say "Installing/ensuring Claude Code + Claude Flow CLIs…"
+npm list -g @anthropic-ai/claude-code >/dev/null 2>&1 || npm i -g @anthropic-ai/claude-code
+npm list -g claude-flow@alpha >/dev/null 2>&1 || npm i -g claude-flow@alpha
+
+# ------------------------- INIT REPO -------------------------------
+say "Initializing git repo and Claude Flow state…"
+git init >/dev/null 2>&1 || true
+claude-flow init $NONINTERACTIVE $VERBOSE_FLAG
+
+# ------------------------- SPARC MODE RESOLUTION ---------------------
+apply_sparc_mode() {
+  local mode="$1"
+  say "Applying SPARC mode: $mode"
+  
+  # Use SPARC modes instead of non-existent templates
+  case "$mode" in
+    "architect")
+      claude-flow sparc architect "design system architecture for project" $NONINTERACTIVE $VERBOSE_FLAG
+      ;;
+    "api")
+      claude-flow sparc api "setup API development environment" $NONINTERACTIVE $VERBOSE_FLAG
+      ;;
+    "ui")
+      claude-flow sparc ui "setup web development environment" $NONINTERACTIVE $VERBOSE_FLAG
+      ;;
+    "ml")
+      claude-flow sparc ml "setup machine learning environment" $NONINTERACTIVE $VERBOSE_FLAG
+      ;;
+    "tdd")
+      claude-flow sparc tdd "setup test-driven development environment" $NONINTERACTIVE $VERBOSE_FLAG
+      ;;
+    *)
+      # Auto mode - let the orchestrator decide
+      return 0
+      ;;
+  esac
+  return 0
+}
+
+if [[ "$SPARC_MODE" == "auto" ]]; then
+  # We let Flow choose based on the idea (next step), but we need a CLAUDE.md holder now.
+  # The init command already creates CLAUDE.md, so we just ensure it exists
+  [[ -f CLAUDE.md ]] || touch CLAUDE.md
+else
+  apply_sparc_mode "$SPARC_MODE" || warn "SPARC mode '$SPARC_MODE' failed to apply; continuing with default setup."
+  [[ -f CLAUDE.md ]] || touch CLAUDE.md
+fi
+
+# ------------------------- CAPTURE IDEA ----------------------------
+say "Enter your idea (end with Ctrl-D)."
+say "Recommended structure (but flexible):"
+say "  - Users: Who will use this system?"
+say "  - Goal: What problem does it solve?"
+say "  - Inputs: What data/sources does it need?"
+say "  - Outputs: What does it produce?"
+say "  - Runtime: Local development, cloud deployment, or both?"
+say "  - Additional details: Architecture preferences, tech stack, integrations, etc."
+say ""
+say "You can be as detailed as needed - the more context, the better the implementation!"
+say "Type your idea below:"
+IDEA_TEXT="$(cat)"
+
+[[ -n "${IDEA_TEXT// }" ]] || die "No idea text provided."
+
+# ------------------------- AUTO-SELECT SPARC MODE + TOPOLOGY + WRITE PRD -------------------------
+say "Letting Flow choose SPARC mode & topology from your idea, draft PRD, then implement…"
+
+TOPOLOGY_INSTR=""
+if [[ "$TOPOLOGY" != "auto" ]]; then
+  TOPOLOGY_INSTR="Force topology: $TOPOLOGY with $AGENTS agents."
+fi
+
+SPARC_INSTR=""
+if [[ "$SPARC_MODE" != "auto" ]]; then
+  SPARC_INSTR="Force SPARC mode: $SPARC_MODE."
+fi
+
+ORCH_PROMPT_PRD=$(
+  cat <<'EOP'
+You are the Build Orchestrator.
+
+1) From the user's idea below, CHOOSE the best Claude Flow SPARC mode via this rubric:
+- architect for system design and architecture
+- api for HTTP services and backend development
+- ui for frontend and web development
+- ml for machine learning and data science
+- tdd for test-driven development workflows
+Print: "SPARC_MODE_CHOSEN: <name>".
+
+2) CHOOSE topology:
+- Swarm (mesh, 5–8 agents) for parallel scaffolding/big refactors
+- Hive mind (3–4 agents) for tightly sequenced, low-thrash tasks
+Pick an agent count. Print: "TOPOLOGY_CHOSEN: <swarm|hive> AGENTS: <n>".
+
+3) DRAFT a complete PRD into CLAUDE.md (overwrite file) with:
+Objective, Non-goals, Deliverables (dir tree), Tech stack with PINNED dependencies, Task graph,
+Verification gates (bootstrap.sh must pass; make test green; domain-specific gates),
+Acceptance criteria, Paths/CLI targets, Topology/agents,
+Installer requirement: write 'bootstrap.sh' that creates .venv, installs deps, verifies ffmpeg, ensures whisper model,
+Makefile: setup/test/smoke/run-daily/verify-citations.
+
+The PRD must be executable by a multi-agent build with ZERO questions.
+
+4) IMPLEMENT the PRD exactly. Create/patch files, run ./bootstrap.sh, run tests, and self-patch once to pass all gates.
+
+Rules:
+- Non-interactive; do not ask the user questions.
+- At each phase, print files created/modified and a one-line rationale.
+- Fail if any gate fails; attempt one auto-patch cycle; then stop with a clear error summary.
+EOP
+)
+
+# Compose final prompt including user idea and any forced choices
+FINAL_PRD_PROMPT=$(
+  printf "%s\n\nUser Idea:\n%s\n\n%s\n%s\n" \
+    "$ORCH_PROMPT_PRD" \
+    "$IDEA_TEXT" \
+    "$SPARC_INSTR" \
+    "$TOPOLOGY_INSTR"
+)
+
+# Run swarm to choose SPARC mode+topology, write PRD, and build
+claude-flow swarm "$FINAL_PRD_PROMPT" $NONINTERACTIVE $VERBOSE_FLAG
+
+# ------------------------- ENABLE VERIFICATION MODE ----------------
+say "Enabling strict verification mode…"
+claude-flow verify init strict $NONINTERACTIVE $VERBOSE_FLAG
+claude-flow status $NONINTERACTIVE || true
+
+# ------------------------- LEARNING WALKTHROUGH --------------------
+say "Generating Project_Walkthrough.md so you can learn the patterns…"
+claude-flow swarm "Read the repo and generate Project_Walkthrough.md covering: module map, execution flow, design patterns, verification gates, and hardening suggestions." $NONINTERACTIVE $VERBOSE_FLAG
+
+# ------------------------- FINAL OUTPUT ----------------------------
+say "DONE."
+echo "Project: $PROJECT_DIR"
+echo "Key files:"
+echo "  - CLAUDE.md (PRD)"
+echo "  - bootstrap.sh (installer)  -> run: ./bootstrap.sh"
+echo "  - Makefile (setup/test/smoke/run-daily) -> run: make setup && make test && make smoke"
+echo "  - Project_Walkthrough.md (learn the codebase)"
+echo "Common commands:"
+echo "  - claude-flow swarm \"Fix failing tests; keep API stable.\" $NONINTERACTIVE $VERBOSE_FLAG"
+echo "  - claude-flow sparc tdd \"Implement feature X end-to-end.\" $NONINTERACTIVE $VERBOSE_FLAG"

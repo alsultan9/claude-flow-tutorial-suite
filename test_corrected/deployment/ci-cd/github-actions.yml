@@ -1,0 +1,630 @@
+# Complete CI/CD Pipeline for Integration System
+# This workflow handles testing, building, security scanning, and deployment
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop, 'feature/*', 'hotfix/*']
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened, ready_for_review]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      skip_tests:
+        description: 'Skip test execution'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ============================================================================
+  # Code Quality and Testing Pipeline
+  # ============================================================================
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    outputs:
+      should-deploy: ${{ steps.changes.outputs.should-deploy }}
+      version: ${{ steps.version.outputs.version }}
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: testdb
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+        options: >
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 6379:6379
+      
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+        env:
+          discovery.type: single-node
+          ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+          xpack.security.enabled: false
+        options: >
+          --health-cmd "curl -f http://localhost:9200/_cluster/health || exit 1"
+          --health-interval 30s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 9200:9200
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.npm
+          node_modules
+          ~/.cache/Cypress
+        key: ${{ runner.os }}-deps-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-deps-
+    
+    - name: Install dependencies
+      run: |
+        npm ci --prefer-offline --no-audit
+        npm ls --depth=0
+    
+    - name: Generate version
+      id: version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        elif [[ $GITHUB_REF == refs/heads/main ]]; then
+          VERSION="main-${GITHUB_SHA::8}"
+        else
+          VERSION="${GITHUB_REF#refs/heads/}-${GITHUB_SHA::8}"
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Generated version: $VERSION"
+    
+    - name: Detect changes
+      id: changes
+      uses: dorny/paths-filter@v2
+      with:
+        filters: |
+          code:
+            - 'src/**'
+            - 'tests/**'
+            - 'package*.json'
+            - 'tsconfig*.json'
+            - '*.js'
+            - '*.ts'
+          deployment:
+            - 'deployment/**'
+            - '.github/workflows/**'
+          docs:
+            - 'docs/**'
+            - '*.md'
+    
+    - name: Code quality checks
+      run: |
+        echo "Running code quality checks..."
+        npm run lint:check
+        npm run format:check
+        npm run typecheck
+    
+    - name: Security audit
+      run: |
+        echo "Running security audit..."
+        npm audit --audit-level moderate
+        npx audit-ci --moderate
+    
+    - name: Unit tests
+      if: inputs.skip_tests != true
+      run: |
+        echo "Running unit tests..."
+        npm run test:unit
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+        REDIS_URL: redis://localhost:6379
+        ELASTICSEARCH_URL: http://localhost:9200
+    
+    - name: Integration tests
+      if: inputs.skip_tests != true
+      run: |
+        echo "Running integration tests..."
+        npm run test:integration
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+        REDIS_URL: redis://localhost:6379
+        ELASTICSEARCH_URL: http://localhost:9200
+    
+    - name: E2E tests
+      if: inputs.skip_tests != true && steps.changes.outputs.code == 'true'
+      run: |
+        echo "Running E2E tests..."
+        npm run test:e2e:headless
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+        REDIS_URL: redis://localhost:6379
+        API_URL: http://localhost:3000
+    
+    - name: Test coverage
+      if: inputs.skip_tests != true
+      run: |
+        echo "Generating test coverage..."
+        npm run test:coverage
+    
+    - name: Upload coverage to Codecov
+      if: inputs.skip_tests != true
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage/lcov.info
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+    
+    - name: SonarCloud Scan
+      if: inputs.skip_tests != true
+      uses: SonarSource/sonarcloud-github-action@master
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    
+    - name: Build application
+      run: |
+        echo "Building application..."
+        npm run build
+        ls -la dist/
+    
+    - name: Archive build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-artifacts-${{ steps.version.outputs.version }}
+        path: |
+          dist/
+          package*.json
+          deployment/
+        retention-days: 30
+
+  # ============================================================================
+  # Security Scanning Pipeline
+  # ============================================================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: quality-gate
+    if: always() && (needs.quality-gate.result == 'success' || github.event_name == 'workflow_dispatch')
+    
+    permissions:
+      contents: read
+      security-events: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Run Trivy vulnerability scanner (filesystem)
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH,MEDIUM'
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+    
+    - name: Run CodeQL Analysis
+      uses: github/codeql-action/init@v2
+      with:
+        languages: javascript
+        queries: security-and-quality
+    
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v2
+    
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+    
+    - name: OWASP Dependency Check
+      uses: dependency-check/Dependency-Check_Action@main
+      with:
+        project: 'integration-system'
+        path: '.'
+        format: 'SARIF'
+        out: 'dependency-check-results'
+    
+    - name: Upload OWASP results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'dependency-check-results/reports/dependency-check-report.sarif'
+
+  # ============================================================================
+  # Container Build and Registry Push
+  # ============================================================================
+  build-containers:
+    name: Build and Push Containers
+    runs-on: ubuntu-latest
+    needs: [quality-gate, security-scan]
+    if: |
+      always() && 
+      needs.quality-gate.result == 'success' && 
+      (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'release')
+    
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tags: ${{ steps.meta.outputs.tags }}
+    
+    permissions:
+      contents: read
+      packages: write
+    
+    strategy:
+      matrix:
+        service: [api-gateway, auth-service, user-service, task-service, notification-service]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        platforms: linux/amd64,linux/arm64
+    
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=${{ needs.quality-gate.outputs.version }}
+        labels: |
+          org.opencontainers.image.title=${{ matrix.service }}
+          org.opencontainers.image.description=Integration System ${{ matrix.service }}
+          org.opencontainers.image.vendor=Integration Team
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: build-artifacts-${{ needs.quality-gate.outputs.version }}
+        path: .
+    
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: deployment/docker/Dockerfile
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha,scope=${{ matrix.service }}
+        cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+        build-args: |
+          SERVICE_NAME=${{ matrix.service }}
+          BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          VERSION=${{ needs.quality-gate.outputs.version }}
+          GIT_COMMIT=${{ github.sha }}
+    
+    - name: Run Trivy vulnerability scanner (image)
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}:${{ needs.quality-gate.outputs.version }}
+        format: 'sarif'
+        output: 'trivy-image-results.sarif'
+    
+    - name: Upload Trivy image scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-image-results.sarif'
+        category: 'trivy-${{ matrix.service }}'
+
+  # ============================================================================
+  # Staging Deployment
+  # ============================================================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [quality-gate, build-containers]
+    if: |
+      always() && 
+      needs.quality-gate.result == 'success' && 
+      needs.build-containers.result == 'success' && 
+      (github.ref == 'refs/heads/develop' || 
+       (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging'))
+    
+    environment: 
+      name: staging
+      url: https://api-staging.example.com
+    
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN_STAGING }}
+        role-session-name: GitHubActions-Staging
+        aws-region: ${{ secrets.AWS_REGION }}
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+    
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME_STAGING }} --region ${{ secrets.AWS_REGION }}
+        kubectl config current-context
+    
+    - name: Deploy to staging
+      run: |
+        echo "Deploying version ${{ needs.quality-gate.outputs.version }} to staging..."
+        
+        # Apply base resources
+        kubectl apply -f deployment/kubernetes/base/ -n staging
+        
+        # Update deployments with new image tags
+        kubectl set image deployment/api-gateway api-gateway=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api-gateway:${{ needs.quality-gate.outputs.version }} -n staging
+        kubectl set image deployment/auth-service auth-service=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/auth-service:${{ needs.quality-gate.outputs.version }} -n staging
+        kubectl set image deployment/user-service user-service=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/user-service:${{ needs.quality-gate.outputs.version }} -n staging
+        
+        # Wait for rollouts to complete
+        kubectl rollout status deployment/api-gateway -n staging --timeout=600s
+        kubectl rollout status deployment/auth-service -n staging --timeout=600s
+        kubectl rollout status deployment/user-service -n staging --timeout=600s
+    
+    - name: Run smoke tests
+      run: |
+        echo "Running smoke tests against staging..."
+        npm run test:smoke
+      env:
+        API_URL: https://api-staging.example.com
+        ENVIRONMENT: staging
+    
+    - name: Post deployment notification
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: |
+          Staging deployment ${{ job.status }}
+          Version: ${{ needs.quality-gate.outputs.version }}
+          Environment: staging
+          Actor: ${{ github.actor }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ============================================================================
+  # Production Deployment
+  # ============================================================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [quality-gate, build-containers, deploy-staging]
+    if: |
+      always() && 
+      needs.quality-gate.result == 'success' && 
+      needs.build-containers.result == 'success' && 
+      (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped') && 
+      (github.ref == 'refs/heads/main' || 
+       github.event_name == 'release' ||
+       (github.event_name == 'workflow_dispatch' && inputs.environment == 'production'))
+    
+    environment: 
+      name: production
+      url: https://api.example.com
+    
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN_PRODUCTION }}
+        role-session-name: GitHubActions-Production
+        aws-region: ${{ secrets.AWS_REGION }}
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+    
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME_PRODUCTION }} --region ${{ secrets.AWS_REGION }}
+        kubectl config current-context
+    
+    - name: Pre-deployment backup
+      run: |
+        echo "Creating pre-deployment backup..."
+        kubectl create job backup-$(date +%s) --from=cronjob/database-backup -n production
+    
+    - name: Blue-Green Deployment
+      run: |
+        echo "Starting blue-green deployment for version ${{ needs.quality-gate.outputs.version }}..."
+        
+        # Apply base resources
+        kubectl apply -f deployment/kubernetes/base/ -n production
+        
+        # Create green deployment
+        sed 's/api-gateway/api-gateway-green/g' deployment/kubernetes/services/api-gateway.yml | kubectl apply -f - -n production
+        sed 's/auth-service/auth-service-green/g' deployment/kubernetes/services/auth-service.yml | kubectl apply -f - -n production
+        sed 's/user-service/user-service-green/g' deployment/kubernetes/services/user-service.yml | kubectl apply -f - -n production
+        
+        # Update green deployments with new images
+        kubectl set image deployment/api-gateway-green api-gateway=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api-gateway:${{ needs.quality-gate.outputs.version }} -n production
+        kubectl set image deployment/auth-service-green auth-service=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/auth-service:${{ needs.quality-gate.outputs.version }} -n production
+        kubectl set image deployment/user-service-green user-service=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/user-service:${{ needs.quality-gate.outputs.version }} -n production
+        
+        # Wait for green deployments
+        kubectl rollout status deployment/api-gateway-green -n production --timeout=900s
+        kubectl rollout status deployment/auth-service-green -n production --timeout=900s
+        kubectl rollout status deployment/user-service-green -n production --timeout=900s
+    
+    - name: Production smoke tests
+      run: |
+        echo "Running production smoke tests..."
+        # Test green endpoints
+        npm run test:smoke:production
+      env:
+        API_URL: https://api-green.example.com
+        ENVIRONMENT: production
+    
+    - name: Switch traffic to green
+      run: |
+        echo "Switching traffic to green deployment..."
+        # Update service selectors to point to green
+        kubectl patch service api-gateway-service -p '{"spec":{"selector":{"version":"green"}}}' -n production
+        kubectl patch service auth-service -p '{"spec":{"selector":{"version":"green"}}}' -n production
+        kubectl patch service user-service -p '{"spec":{"selector":{"version":"green"}}}' -n production
+    
+    - name: Final production tests
+      run: |
+        echo "Running final production validation..."
+        sleep 30  # Allow time for traffic switch
+        npm run test:smoke:final
+      env:
+        API_URL: https://api.example.com
+        ENVIRONMENT: production
+    
+    - name: Cleanup blue deployment
+      if: success()
+      run: |
+        echo "Cleaning up blue deployment..."
+        kubectl delete deployment api-gateway auth-service user-service -n production --ignore-not-found=true
+        
+        # Rename green to main
+        kubectl patch deployment api-gateway-green -p '{"metadata":{"name":"api-gateway"}}' -n production
+        kubectl patch deployment auth-service-green -p '{"metadata":{"name":"auth-service"}}' -n production
+        kubectl patch deployment user-service-green -p '{"metadata":{"name":"user-service"}}' -n production
+    
+    - name: Rollback on failure
+      if: failure()
+      run: |
+        echo "Deployment failed, rolling back..."
+        # Switch back to blue
+        kubectl patch service api-gateway-service -p '{"spec":{"selector":{"version":"blue"}}}' -n production
+        kubectl patch service auth-service -p '{"spec":{"selector":{"version":"blue"}}}' -n production
+        kubectl patch service user-service -p '{"spec":{"selector":{"version":"blue"}}}' -n production
+        
+        # Clean up green
+        kubectl delete deployment api-gateway-green auth-service-green user-service-green -n production --ignore-not-found=true
+    
+    - name: Post deployment notification
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: |
+          🚀 Production deployment ${{ job.status }}
+          Version: ${{ needs.quality-gate.outputs.version }}
+          Environment: production
+          Actor: ${{ github.actor }}
+          Commit: ${{ github.sha }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ============================================================================
+  # Deployment Summary
+  # ============================================================================
+  deployment-summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [quality-gate, deploy-staging, deploy-production]
+    if: always()
+    
+    steps:
+    - name: Generate deployment summary
+      run: |
+        echo "# Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Version: ${{ needs.quality-gate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Environment | Status | URL |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------------|--------|-----|" >> $GITHUB_STEP_SUMMARY
+        echo "| Staging | ${{ needs.deploy-staging.result }} | https://api-staging.example.com |" >> $GITHUB_STEP_SUMMARY
+        echo "| Production | ${{ needs.deploy-production.result }} | https://api.example.com |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Commit Details" >> $GITHUB_STEP_SUMMARY
+        echo "- **SHA:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Actor:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Workflow:** ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
