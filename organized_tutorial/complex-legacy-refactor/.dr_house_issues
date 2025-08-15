@@ -1,0 +1,3 @@
+No error handling - Hope nothing ever goes wrong
+No async support - Synchronous everything
+No entry point - How are you supposed to run this?
