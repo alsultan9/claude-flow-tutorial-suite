@@ -70,11 +70,18 @@ show_menu() {
   echo "     - 95% success rate, 6-10 minutes"
   echo ""
   
+  echo -e "${PURPLE}🔄 Code Refactoring${NC}"
+  echo "  5) Code Refactor Orchestrator"
+  echo "     - Transform existing codebases"
+  echo "     - GitHub repo analysis & adaptation"
+  echo "     - 90% success rate, 10-15 minutes"
+  echo ""
+  
   echo -e "${PURPLE}📚 Documentation & Help${NC}"
-  echo "  5) Show project structure"
-  echo "  6) Open navigation guide"
-  echo "  7) Show examples"
-  echo "  8) Exit"
+  echo "  6) Show project structure"
+  echo "  7) Open navigation guide"
+  echo "  8) Show examples"
+  echo "  9) Exit"
   echo ""
 }
 
@@ -142,6 +149,24 @@ run_tutorial() {
       else
         ./05_enhanced_ux.sh -n "$PROJECT_NAME" -s "$SPARC_MODE" -o "$TOPOLOGY" -a "$AGENTS"
       fi
+      ;;
+    "06_code_refactor_orchestrator.sh")
+      # For refactoring, we need additional parameters
+      echo -e "\n${CYAN}🔄 Code Refactor Orchestrator Setup${NC}"
+      echo -e "${PURPLE}===============================${NC}\n"
+      
+      read -p "Source type (github/local): " SOURCE_TYPE
+      SOURCE_TYPE=${SOURCE_TYPE:-github}
+      
+      if [[ "$SOURCE_TYPE" == "github" ]]; then
+        read -p "GitHub repository URL: " SOURCE_PATH
+      else
+        read -p "Local codebase path: " SOURCE_PATH
+      fi
+      
+      read -p "Target functionality description: " TARGET_FUNCTIONALITY
+      
+      ./06_code_refactor_orchestrator.sh -n "$PROJECT_NAME" -s "$SPARC_MODE" -o "$TOPOLOGY" -a "$AGENTS" -t "$SOURCE_TYPE" -p "$SOURCE_PATH" -f "$TARGET_FUNCTIONALITY"
       ;;
   esac
   
@@ -220,45 +245,50 @@ while true; do
   
   read -p "Choose an option (1-7): " choice
   
-  case $choice in
-    1)
-      get_project_details
-      run_tutorial "04_complete_with_deps.sh" "Complete Tutorial (with dependencies)"
-      break
-      ;;
-    2)
-      get_project_details
-      run_tutorial "02_basic_corrected.sh" "Basic Tutorial (corrected)"
-      break
-      ;;
-    3)
-      get_project_details
-      run_tutorial "03_wfgy_enhanced.sh" "WFGY Enhanced Tutorial"
-      break
-      ;;
-    4)
-      get_project_details
-      run_tutorial "05_enhanced_ux.sh" "Enhanced UX Tutorial"
-      break
-      ;;
-    5)
-      show_structure
-      read -p "Press Enter to continue..."
-      ;;
-    6)
-      open_navigation
-      read -p "Press Enter to continue..."
-      ;;
-    7)
-      show_examples
-      read -p "Press Enter to continue..."
-      ;;
-    8)
-      success "Goodbye! 👋"
-      exit 0
-      ;;
-    *)
-      warn "Invalid option. Please choose 1-8."
-      ;;
-  esac
+        case $choice in
+        1)
+          get_project_details
+          run_tutorial "04_complete_with_deps.sh" "Complete Tutorial (with dependencies)"
+          break
+          ;;
+        2)
+          get_project_details
+          run_tutorial "02_basic_corrected.sh" "Basic Tutorial (corrected)"
+          break
+          ;;
+        3)
+          get_project_details
+          run_tutorial "03_wfgy_enhanced.sh" "WFGY Enhanced Tutorial"
+          break
+          ;;
+        4)
+          get_project_details
+          run_tutorial "05_enhanced_ux.sh" "Enhanced UX Tutorial"
+          break
+          ;;
+        5)
+          get_project_details
+          run_tutorial "06_code_refactor_orchestrator.sh" "Code Refactor Orchestrator"
+          break
+          ;;
+        6)
+          show_structure
+          read -p "Press Enter to continue..."
+          ;;
+        7)
+          open_navigation
+          read -p "Press Enter to continue..."
+          ;;
+        8)
+          show_examples
+          read -p "Press Enter to continue..."
+          ;;
+        9)
+          success "Goodbye! 👋"
+          exit 0
+          ;;
+        *)
+          warn "Invalid option. Please choose 1-9."
+          ;;
+      esac
 done

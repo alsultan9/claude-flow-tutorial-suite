@@ -21,6 +21,7 @@ This tutorial suite enables anyone to:
 | **Basic** | Learning & development | 70% | 3-5 min | Simple, manual setup |
 | **WFGY Enhanced** | Enterprise projects | 90% | 5-8 min | Methodology integration |
 | **Enhanced UX** | User-friendly experience | 95% | 6-10 min | Templates, validation |
+| **Code Refactor** | Existing codebases | 90% | 10-15 min | GitHub analysis, adaptation |
 
 ## 🚀 **Quick Start**
 
@@ -39,6 +40,9 @@ cd claude-flow-tutorial-suite
 # Enhanced UX with templates
 ./organized_tutorial/scripts/05_enhanced_ux.sh -n my-project -t
 
+# Code refactoring from GitHub repo
+./organized_tutorial/scripts/06_code_refactor_orchestrator.sh -n refactored-app -t github -p https://github.com/user/repo.git -f "Modern React app with microservices"
+
 # Basic tutorial
 ./organized_tutorial/scripts/02_basic_corrected.sh -n my-project
 ```
@@ -55,6 +59,13 @@ Choose from 8 pre-built project templates:
 - Business dashboards
 - Authentication services
 - Custom ideas
+
+### **Code Refactoring & Adaptation**
+Transform existing codebases into new applications:
+- **GitHub repository analysis** and adaptation
+- **Local codebase modernization** and enhancement
+- **Multi-repository fusion** and integration
+- **Legacy to modern migration** with architecture upgrades
 
 ### **Smart Validation**
 - **BBMC**: Data consistency validation
@@ -98,6 +109,7 @@ claude-flow-tutorial-suite/
 - **[Project Organization](organized_tutorial/documentation/04_project_organization.md)**
 - **[Usage Guide](organized_tutorial/documentation/03_usage_guide.md)**
 - **[WFGY Implementation](organized_tutorial/documentation/07_wfgy_implementation.md)**
+- **[Code Refactor Guide](organized_tutorial/documentation/08_code_refactor_guide.md)**
 - **[Dependency Management](organized_tutorial/documentation/05_dependency_management.md)**
 
 ## 🎯 **Example Projects**
