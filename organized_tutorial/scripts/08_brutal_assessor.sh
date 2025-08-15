@@ -558,7 +558,7 @@ if [[ "$BRUTAL_ASSESSMENT" == true ]]; then
   
   # Determine if project passes quality threshold
   overall_score=$(( (code_score + arch_score + func_score) / 3 ))
-  threshold_score=$((QUALITY_THRESHOLD * 100))
+  threshold_score=$(echo "$QUALITY_THRESHOLD * 100" | bc -l | cut -d. -f1)
   
   if [[ $overall_score -ge $threshold_score ]]; then
     success "🎉 PROJECT PASSES QUALITY THRESHOLD!"
@@ -658,7 +658,7 @@ echo ""
 echo -e "${CYAN}🏥 Dr. House Brutal Assessment Complete${NC}"
 echo -e "${PURPLE}=====================================${NC}"
 echo ""
-echo -e "${WHITE}Project:${NC} $PROJECT_DIR"
+echo -e "${WHITE}Project:${NC} $PROJECT_NAME"
 echo -e "${WHITE}Overall Score:${NC} $overall_score/100"
 echo -e "${WHITE}Assessment Report:${NC} DR_HOUSE_ASSESSMENT.md"
 echo ""

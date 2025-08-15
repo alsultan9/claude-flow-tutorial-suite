@@ -524,7 +524,7 @@ if [[ "$BRUTAL_ASSESSMENT" == true ]]; then
   [[ $quality_result -eq 2 ]] && quality_score=30
   
   # Check against threshold
-  threshold_score=$((QUALITY_THRESHOLD * 100))
+  threshold_score=$(echo "$QUALITY_THRESHOLD * 100" | bc -l | cut -d. -f1)
   
   if [[ $quality_score -ge $threshold_score ]]; then
     success "🎉 REFACTOR PASSES QUALITY THRESHOLD!"

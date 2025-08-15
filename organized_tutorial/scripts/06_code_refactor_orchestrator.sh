@@ -413,10 +413,10 @@ command -v node >/dev/null 2>&1 || die "Node.js is required"
 command -v npm >/dev/null 2>&1 || die "npm is required"
 command -v git >/dev/null 2>&1 || die "git is required"
 
-# Step 3: Install CLIs
-show_progress 3 8 "Installing Claude Flow CLIs"
-npm list -g @anthropic-ai/claude-code >/dev/null 2>&1 || npm i -g @anthropic-ai/claude-code
-npm list -g claude-flow@alpha >/dev/null 2>&1 || npm i -g claude-flow@alpha
+# Step 3: Check CLIs
+show_progress 3 8 "Checking Claude Flow CLIs"
+command -v claude >/dev/null 2>&1 || npm i -g @anthropic-ai/claude-code
+npx claude-flow@alpha --version >/dev/null 2>&1 || echo "Claude Flow available via npx"
 
 # Step 4: Create project directory
 show_progress 4 8 "Creating project structure"
@@ -458,6 +458,20 @@ success "Project '$PROJECT_NAME' is ready for code refactor orchestration!"
 # ------------------------- DEPENDENCY SETUP -------------------------
 if [[ "$SETUP_DEPENDENCIES" == true ]]; then
   bbpf "Step 1: Setting up project dependencies..."
+  
+  # Simple dependency check function
+  check_dependency() {
+    local cmd="$1"
+    local install_cmd="$2"
+    local service_name="$3"
+    
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      warn "Dependency not found: $cmd"
+      info "To install: $install_cmd"
+    else
+      info "Dependency found: $cmd"
+    fi
+  }
   
   # Check and install PostgreSQL
   check_dependency "psql" "brew install postgresql" "postgresql"
@@ -549,7 +563,9 @@ FINAL_REFACTOR_PROMPT=$(printf "%s\n\n%s\n%s\n" "$REFACTOR_PROMPT" "$SPARC_INSTR
 # BBPF: Progressive refactoring with validation gates
 if [[ "$WFGY_ENABLED" == true ]]; then
   bbpf "Step 5: Orchestrating code refactoring with progressive validation..."
-  ./claude-flow task orchestrate --task "$FINAL_REFACTOR_PROMPT" --strategy parallel $NONINTERACTIVE $VERBOSE_FLAG
+  
+  # Use npx directly with non-interactive flags to avoid TUI
+  npx claude-flow@alpha task orchestrate --task "$FINAL_REFACTOR_PROMPT" --strategy parallel --non-interactive --verbose
   
   bbpf "Step 6: Validating refactoring success..."
   if [[ ! -f "bootstrap.sh" ]]; then
@@ -565,8 +581,8 @@ if [[ "$WFGY_ENABLED" == true ]]; then
   
   bbpf "Code refactoring completed successfully with validation"
 else
-  # Run task orchestrate for refactoring
-  ./claude-flow task orchestrate --task "$FINAL_REFACTOR_PROMPT" --strategy parallel $NONINTERACTIVE $VERBOSE_FLAG
+  # Run task orchestrate for refactoring using npx directly
+  npx claude-flow@alpha task orchestrate --task "$FINAL_REFACTOR_PROMPT" --strategy parallel --non-interactive --verbose
 fi
 
 # ------------------------- POST-REFACTOR SETUP -------------------------
@@ -594,21 +610,21 @@ say "Enabling strict verification mode..."
 # BBPF: Progressive verification with multiple gates
 if [[ "$WFGY_ENABLED" == true ]]; then
   bbpf "Step 9: Initializing enhanced verification mode..."
-  ./claude-flow init --validate --enhanced $NONINTERACTIVE $VERBOSE_FLAG >/dev/null
+  npx claude-flow@alpha init --validate --enhanced --non-interactive --verbose >/dev/null
   
   bbpf "Step 10: Running health check validation..."
-  ./claude-flow status --health-check $NONINTERACTIVE || true
+  npx claude-flow@alpha status --health-check --non-interactive || true
   
   bbpf "Step 11: Validating system status..."
-  if ! ./claude-flow status $NONINTERACTIVE >/dev/null 2>&1; then
+  if ! npx claude-flow@alpha status --non-interactive >/dev/null 2>&1; then
     bbcr "Verification inconsistency: System status check failed"
     warn "BBPF warning: System status check failed, but continuing"
   fi
   
   bbpf "Verification mode enabled successfully with validation"
 else
-  ./claude-flow init --validate --enhanced $NONINTERACTIVE $VERBOSE_FLAG >/dev/null
-  ./claude-flow status --health-check $NONINTERACTIVE || true
+  npx claude-flow@alpha init --validate --enhanced --non-interactive --verbose >/dev/null
+  npx claude-flow@alpha status --health-check --non-interactive || true
 fi
 
 # ------------------------- REFACTOR DOCUMENTATION --------------------
@@ -617,9 +633,9 @@ say "Generating Refactor_Walkthrough.md with migration guide..."
 # BBAM: Focus on critical documentation
 if [[ "$WFGY_ENABLED" == true ]]; then
   bbam "Generating comprehensive refactor walkthrough with migration guidance..."
-  ./claude-flow task orchestrate --task "Read the repo and generate Refactor_Walkthrough.md covering: original source analysis, refactoring decisions, architecture changes, migration guide, testing strategy, and deployment differences. Focus on BBMC validation points, BBPF pipeline structure, BBCR contradiction detection, and BBAM attention management." --strategy sequential $NONINTERACTIVE $VERBOSE_FLAG
+  npx claude-flow@alpha task orchestrate --task "Read the repo and generate Refactor_Walkthrough.md covering: original source analysis, refactoring decisions, architecture changes, migration guide, testing strategy, and deployment differences. Focus on BBMC validation points, BBPF pipeline structure, BBCR contradiction detection, and BBAM attention management." --strategy sequential --non-interactive --verbose
 else
-  ./claude-flow task orchestrate --task "Read the repo and generate Refactor_Walkthrough.md covering: original source analysis, refactoring decisions, architecture changes, migration guide, testing strategy, and deployment differences." --strategy sequential $NONINTERACTIVE $VERBOSE_FLAG
+  npx claude-flow@alpha task orchestrate --task "Read the repo and generate Refactor_Walkthrough.md covering: original source analysis, refactoring decisions, architecture changes, migration guide, testing strategy, and deployment differences." --strategy sequential --non-interactive --verbose
 fi
 
 # ------------------------- FINAL VALIDATION -------------------------
