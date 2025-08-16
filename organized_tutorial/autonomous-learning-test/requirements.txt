@@ -1,0 +1,28 @@
+# Core dependencies - Learned from autonomous assessment
+fastapi==0.104.1
+uvicorn==0.24.0
+sqlalchemy==2.0.23
+pydantic==2.5.0
+python-dotenv==1.0.0
+
+# Database - Learned patterns
+alembic==1.12.1
+psycopg2-binary==2.9.9
+
+# Testing - Learned testing patterns
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0
+
+# Development - Learned development patterns
+black==23.11.0
+flake8==6.1.0
+mypy==1.7.1
+
+# Logging - Learned logging patterns
+structlog==23.2.0
+
+# Security - Learned security patterns
+python-jose==3.3.0
+passlib==1.7.4
+bcrypt==4.1.2

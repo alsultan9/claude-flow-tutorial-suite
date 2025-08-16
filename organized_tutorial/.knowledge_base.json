@@ -1,0 +1,15 @@
+{
+  "fixes": {
+    "high_impact": [],
+    "medium_impact": [],
+    "low_impact": []
+  },
+  "patterns": {
+    "successful": [],
+    "failed": [],
+    "recurring_issues": []
+  },
+  "architecture_templates": {},
+  "best_practices": [],
+  "learned_constraints": []
+}
