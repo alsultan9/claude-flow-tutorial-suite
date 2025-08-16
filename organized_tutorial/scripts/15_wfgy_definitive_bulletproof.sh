@@ -1044,14 +1044,14 @@ main() {
     house_ultimate_assessment "$(pwd)" "$iteration"
     current_score=$(cat .quality_score 2>/dev/null || echo "0")
     
+    # Auto-Fix: Ultimate Fixes (ALWAYS execute if score < target)
+    if [[ "$AUTO_FIX_ENABLED" == "true" ]] && [[ $current_score -lt $TARGET_SCORE ]]; then
+      auto_fix_ultimate "$(pwd)" "$iteration"
+    fi
+    
     if [[ $current_score -ge $TARGET_SCORE ]]; then
       success "🎉 WFGY Ultimate target achieved in iteration $iteration!"
       break
-    fi
-    
-    # Auto-Fix: Ultimate Fixes
-    if [[ "$AUTO_FIX_ENABLED" == "true" ]]; then
-      auto_fix_ultimate "$(pwd)" "$iteration"
     fi
     
     iteration=$((iteration + 1))
